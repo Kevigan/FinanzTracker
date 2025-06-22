@@ -1,0 +1,36 @@
+package com.example.financetracker
+
+import androidx.compose.runtime.Composable
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.financetracker.viewModels.ExpenseViewModel
+import com.example.financetracker.views.AddExpenseView
+import com.example.financetracker.views.MainView
+
+@Composable
+fun Navigation(
+    navController: NavHostController = rememberNavController(),
+    expenseViewModel: ExpenseViewModel = hiltViewModel()
+) {
+    NavHost(
+        navController = navController,
+        startDestination = Screen.MainScreen.route
+    ) {
+        composable(Screen.MainScreen.route) {
+            MainView(
+                navController = navController,
+                viewModel = expenseViewModel
+            )
+        }
+
+        composable(Screen.AddExpenseScreen.route) {
+            AddExpenseView(
+                navController = navController,
+                viewModel = expenseViewModel
+            )
+        }
+    }
+}

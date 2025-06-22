@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
+    id("dagger.hilt.android.plugin")
 }
 
 android {
@@ -51,6 +52,14 @@ android {
 }
 
 dependencies {
+
+    // Hilt core
+    implementation("com.google.dagger:hilt-android:2.50")
+    kapt("com.google.dagger:hilt-compiler:2.50")
+
+// Hilt with Jetpack Compose navigation
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+
 
     implementation ("androidx.compose.runtime:runtime-livedata:1.6.0")
 // Coroutine test support
