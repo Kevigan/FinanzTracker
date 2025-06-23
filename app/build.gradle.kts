@@ -52,6 +52,7 @@ android {
 }
 
 dependencies {
+    implementation ("com.github.PhilJay:MPAndroidChart:v3.1.0")
 
     // Hilt core
     implementation("com.google.dagger:hilt-android:2.50")
