@@ -1,12 +1,10 @@
 package com.example.financetracker.views
 
 import android.app.DatePickerDialog
-import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,53 +41,92 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.example.financetracker.Screen
 import com.example.financetracker.data.Expense
+import com.example.financetracker.data.ExpenseCategory
+import com.example.financetracker.data.FinanceRepository
+import com.example.financetracker.data.Income
+import com.example.financetracker.data.IncomeDao
+import com.example.financetracker.data.RecurrenceType
 import com.example.financetracker.data.SortOption
+import com.example.financetracker.data.Transaction
 import com.example.financetracker.utils.formatDate
 import com.example.financetracker.utils.formatDateOnly
-import com.example.financetracker.viewModels.ExpenseViewModel
+import com.example.financetracker.viewModels.FinanzeViewModel
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
 import com.github.mikephil.charting.formatter.ValueFormatter
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import java.util.Calendar
 import java.util.Date
 
 
 @Composable
 fun MainView(
-    viewModel: ExpenseViewModel,
+    viewModel: FinanzeViewModel,
     navController: NavController
 ) {
     // Commented out: actual ViewModel data
     // val expenses by viewModel.expenses.collectAsState()
     val context = LocalContext.current
-    var fromDate by remember { mutableStateOf<Date?>(null) }
-    var toDate by remember { mutableStateOf<Date?>(null) }
+
     var showDateDialog by remember { mutableStateOf(false) }
     var showCalenderDialog by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var showRecurrenceFilterDialog by remember { mutableStateOf(false) }
+    var showCategoryFilterDialog by remember { mutableStateOf(false) }
+    var showTypeFilterDialog by remember { mutableStateOf(false) }
+
     var selectedSortOption by remember { mutableStateOf(SortOption.DATE_DESC) }
+    var fromDate by remember { mutableStateOf<Date?>(null) }
+    var toDate by remember { mutableStateOf<Date?>(null) }
+    var selectedRecurrenceFilter by remember { mutableStateOf<RecurrenceType?>(null) }
+    var selectedCategoryFilter by remember { mutableStateOf<ExpenseCategory?>(null) }
+    var selectedTransactionTypeFilter by remember { mutableStateOf<String?>(null) }
 
-    // 🧪 Dummy data using a for-loop
-    val rawExpenses = remember { generateFakeExpenses(100) }
+    val expenses by viewModel.expenses.collectAsState()
+    val incomes by viewModel.incomes.collectAsState()
 
-    val filteredAndSortedExpenses by remember(
-        rawExpenses, selectedSortOption, fromDate, toDate
+   // val transactions by viewModel.mockTransactions.collectAsState()
+   // val transactions by viewModel.mockTransactions2.collectAsState()
+    val transactions by viewModel.simulatedTransactions.collectAsState()
+
+    val filteredAndSortedTransactions by remember(
+        transactions, selectedSortOption, fromDate, toDate,
+        selectedRecurrenceFilter, selectedCategoryFilter, selectedTransactionTypeFilter
     ) {
         derivedStateOf {
-            val filtered = rawExpenses.filter { expense ->
-                val date = expense.createdAt
-                val from = fromDate?.time ?: Long.MIN_VALUE
-                val to = toDate?.time ?: Long.MAX_VALUE
-                date in from..to
+            val from = fromDate?.time ?: Long.MIN_VALUE
+            val to = toDate?.time ?: Long.MAX_VALUE
+            val typeFilter = selectedTransactionTypeFilter?.lowercase()
+
+            val filtered = transactions.filter { tx ->
+                val matchesDate = tx.createdAt in from..to
+
+                val matchesRecurrence = when (tx) {
+                    is Transaction.ExpenseTransaction -> selectedRecurrenceFilter == null || tx.expense.recurrence == selectedRecurrenceFilter
+                    is Transaction.IncomeTransaction -> selectedRecurrenceFilter == null || tx.income.recurrence == selectedRecurrenceFilter
+                    else -> true
+                }
+
+                val matchesCategory = when (tx) {
+                    is Transaction.ExpenseTransaction -> selectedCategoryFilter == null || tx.expense.category == selectedCategoryFilter
+                    else -> selectedCategoryFilter == null
+                }
+
+                val matchesType = when (typeFilter) {
+                    "income" -> tx is Transaction.IncomeTransaction
+                    "expense" -> tx is Transaction.ExpenseTransaction
+                    else -> true
+                }
+
+                matchesDate && matchesRecurrence && matchesCategory && matchesType
             }
 
             when (selectedSortOption) {
@@ -109,45 +146,26 @@ fun MainView(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Finance Tracker") }
+                title = { Text("Finance Tracker") },
+                actions = {
+                    TextButton(onClick = { viewModel.simulateNextDay() }) {
+                        Text("Simulate", color = Color.White)
+                    }
+                }
             )
         },
+
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    navController.navigate(Screen.AddExpenseScreen.route)
-                }
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Expense")
+            FloatingActionButton(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
             }
         },
         bottomBar = {
-            BottomAppBar {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    TextButton(onClick = { showSortDialog = true }) {
-                        Text("Sort By", style = MaterialTheme.typography.body1, color = Color.White)
-                    }
-                    TextButton(onClick = { showCalenderDialog = true }) {
-                        Text(
-                            "Filter Date",
-                            style = MaterialTheme.typography.body1,
-                            color = Color.White
-                        )
-                    }
-                    TextButton(onClick = { showChart = !showChart }) {
-                        Text(
-                            "Show Chart",
-                            style = MaterialTheme.typography.body1,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
+            TransactionBottomBar(
+                onSortClick = { showSortDialog = true },
+                onFilterClick = { showFilterDialog  = true },
+                onChartToggle = { showChart = !showChart }
+            )
         }
     ) { innerPadding ->
         Column(
@@ -156,81 +174,28 @@ fun MainView(
                 .padding(innerPadding)
                 .padding(bottom = 8.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFF0F0F3))
-                    .padding(horizontal = 12.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Row 1 - Sort Info
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "Sorted by: ${selectedSortOption.label}",
-                            style = MaterialTheme.typography.caption,
-                            color = Color.Gray
-                        )
-                        TextButton(
-                            onClick = { selectedSortOption = SortOption.DATE_DESC },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(24.dp)
-                        ) {
-                            Text("Reset", style = MaterialTheme.typography.caption)
-                        }
-                    }
+            BalanceSummary(transactions = filteredAndSortedTransactions)
 
-                    // Row 2 - Filter Info
-                    if (fromDate != null || toDate != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = buildString {
-                                    append("Filtered by date: ")
-                                    append(fromDate?.let { formatDateOnly(it.time) } ?: "Start")
-                                    append(" to ")
-                                    append(toDate?.let { formatDateOnly(it.time) } ?: "End")
-                                },
-                                style = MaterialTheme.typography.caption,
-                                color = Color.Gray
-                            )
-                            TextButton(
-                                onClick = {
-                                    fromDate = null
-                                    toDate = null
-                                },
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.height(24.dp)
-                            ) {
-                                Text("Reset", style = MaterialTheme.typography.caption)
-                            }
-                        }
-                    }
+            TransactionHeaderSection(
+                selectedSortOption = selectedSortOption,
+                fromDate = fromDate,
+                toDate = toDate,
+                selectedRecurrenceFilter = selectedRecurrenceFilter,
+                selectedCategoryFilter = selectedCategoryFilter,
+                selectedTransactionTypeFilter = selectedTransactionTypeFilter,
+                onResetSort = { selectedSortOption = SortOption.DATE_DESC },
+                onResetDateFilter = {
+                    fromDate = null
+                    toDate = null
+                },
+                onResetAdvancedFilters = {
+                    selectedRecurrenceFilter = null
+                    selectedCategoryFilter = null
+                    selectedTransactionTypeFilter = null
                 }
-            }
+            )
 
-            // 🧾 Expenses List
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(filteredAndSortedExpenses) { expense ->
-                    ExpenseItem(expense)
-                }
-            }
+            TransactionListSection(filteredAndSortedTransactions)
         }
     }
 
@@ -324,7 +289,8 @@ fun MainView(
                     .align(Alignment.Center)
                     .padding(horizontal = 16.dp)
             ) {
-                ExpenseLineChart(filteredAndSortedExpenses)
+                val filteredExpenses = filteredAndSortedTransactions.filterIsInstance<Transaction.ExpenseTransaction>().map { it.expense }
+                ExpenseLineChart(filteredExpenses)
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -337,12 +303,158 @@ fun MainView(
             }
         }
     }
+
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Transaction") },
+            buttons = {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    TextButton(onClick = {
+                        showAddDialog = false
+                        navController.navigate(Screen.AddExpenseScreen.route)
+                    }) {
+                        Text("Add Expense")
+                    }
+                    TextButton(onClick = {
+                        showAddDialog = false
+                        navController.navigate(Screen.AddIncomeScreen.route)
+                    }) {
+                        Text("Add Income")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showFilterDialog = false },
+            title = { Text("Select Filter Type") },
+            buttons = {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    TextButton(onClick = {
+                        showFilterDialog = false
+                        showCalenderDialog = true
+                    }) {
+                        Text("Filter by Date")
+                    }
+                    TextButton(onClick = {
+                        showFilterDialog = false
+                        showRecurrenceFilterDialog = true
+                    }) {
+                        Text("Filter by Recurrence")
+                    }
+                    TextButton(onClick = {
+                        showFilterDialog = false
+                        showCategoryFilterDialog = true
+                    }) {
+                        Text("Filter by Category")
+                    }
+                    TextButton(onClick = {
+                        showFilterDialog = false
+                        showTypeFilterDialog = true
+                    }) {
+                        Text("Filter by Type")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showRecurrenceFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showRecurrenceFilterDialog = false },
+            title = { Text("Select Recurrence") },
+            buttons = {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    RecurrenceType.entries.forEach { type ->
+                        TextButton(onClick = {
+                            selectedRecurrenceFilter = type
+                            showRecurrenceFilterDialog = false
+                        }) {
+                            Text(type.name.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                    TextButton(onClick = {
+                        selectedRecurrenceFilter = null
+                        showRecurrenceFilterDialog = false
+                    }) {
+                        Text("Clear Filter")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showCategoryFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showCategoryFilterDialog = false },
+            title = { Text("Select Category") },
+            buttons = {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    ExpenseCategory.entries.forEach { cat ->
+                        TextButton(onClick = {
+                            selectedCategoryFilter = cat
+                            showCategoryFilterDialog = false
+                        }) {
+                            Text(cat.name.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                    TextButton(onClick = {
+                        selectedCategoryFilter = null
+                        showCategoryFilterDialog = false
+                    }) {
+                        Text("Clear Filter")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showTypeFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showTypeFilterDialog = false },
+            title = { Text("Select Transaction Type") },
+            buttons = {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    listOf("Income", "Expense").forEach { type ->
+                        TextButton(onClick = {
+                            selectedTransactionTypeFilter = type
+                            showTypeFilterDialog = false
+                        }) {
+                            Text(type)
+                        }
+                    }
+                    TextButton(onClick = {
+                        selectedTransactionTypeFilter = null
+                        showTypeFilterDialog = false
+                    }) {
+                        Text("Clear Filter")
+                    }
+                }
+            }
+        )
+    }
+
 }
 
 @Composable
-fun ExpenseItem(expense: Expense) {
+fun TransactionItem(
+    name: String,
+    amount: Double,
+    createdAt: Long,
+    isIncome: Boolean,
+    category: ExpenseCategory? = null,
+    recurrence: RecurrenceType = RecurrenceType.NONE
+) {
+    val amountText = if (isIncome) "+$${amount}" else "$${amount}"
+    val amountColor = if (isIncome) Color(0xFF2E7D32) else MaterialTheme.colors.onSurface
+    val backgroundColor = if (isIncome) Color(0xFFE8F5E9) else MaterialTheme.colors.surface
+
     Card(
         elevation = 4.dp,
+        backgroundColor = backgroundColor,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 1.dp)
@@ -353,21 +465,49 @@ fun ExpenseItem(expense: Expense) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = expense.name,
+                    text = name,
                     style = MaterialTheme.typography.subtitle1
                 )
                 Text(
-                    text = "$${expense.amount}",
-                    style = MaterialTheme.typography.subtitle1
+                    text = amountText,
+                    style = MaterialTheme.typography.subtitle1,
+                    color = amountColor
                 )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            Text(
-                text = formatDate(expense.createdAt),
-                style = MaterialTheme.typography.caption
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatDate(createdAt),
+                    style = MaterialTheme.typography.caption,
+                    color = Color.Gray,
+                    modifier = Modifier.weight(2f)
+                )
+
+                Text(
+                    text = category?.name
+                        ?.lowercase()
+                        ?.replaceFirstChar { it.uppercase() } ?: "",
+                    style = MaterialTheme.typography.caption,
+                    color = Color.Gray,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1
+                )
+
+                Text(
+                    text = if (recurrence != RecurrenceType.NONE)
+                        recurrence.name.lowercase().replaceFirstChar { it.uppercase() }
+                    else "",
+                    style = MaterialTheme.typography.caption,
+                    color = Color.Gray,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -450,17 +590,204 @@ fun ExpenseLineChart(expenses: List<Expense>) {
     )
 }
 
-fun generateFakeExpenses(
-    count: Int,
-    startTime: Long = System.currentTimeMillis()
-): List<Expense> {
-    val oneDay = 24 * 60 * 60 * 1000L
-    return List(count) { index ->
-        Expense(
-            name = "Fake Expense #$index",
-            amount = (5..500).random().toDouble(),
-            createdAt = startTime - oneDay * index
-        )
+@Composable
+fun TransactionHeaderSection(
+    selectedSortOption: SortOption,
+    fromDate: Date?,
+    toDate: Date?,
+    selectedRecurrenceFilter: RecurrenceType?,
+    selectedCategoryFilter: ExpenseCategory?,
+    selectedTransactionTypeFilter: String?,
+    onResetSort: () -> Unit,
+    onResetDateFilter: () -> Unit,
+    onResetAdvancedFilters: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF0F0F3))
+            .padding(horizontal = 12.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+
+            // Sort section
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Sorted by: ${selectedSortOption.label}",
+                    style = MaterialTheme.typography.caption,
+                    color = Color.Gray
+                )
+                TextButton(
+                    onClick = onResetSort,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.height(24.dp)
+                ) {
+                    Text("Reset", style = MaterialTheme.typography.caption)
+                }
+            }
+
+            // Date filter section
+            if (fromDate != null || toDate != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp)
+                ) {
+                    Text(
+                        text = buildString {
+                            append("Date: ")
+                            append(fromDate?.let { formatDateOnly(it.time) } ?: "Start")
+                            append(" to ")
+                            append(toDate?.let { formatDateOnly(it.time) } ?: "End")
+                        },
+                        style = MaterialTheme.typography.caption,
+                        color = Color.Gray
+                    )
+                    TextButton(
+                        onClick = onResetDateFilter,
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(24.dp)
+                    ) {
+                        Text("Reset", style = MaterialTheme.typography.caption)
+                    }
+                }
+            }
+
+            // Recurrence / Category / Type filter section
+            if (selectedRecurrenceFilter != null || selectedCategoryFilter != null || selectedTransactionTypeFilter != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp)
+                ) {
+                    val activeFilters = buildList {
+                        if (selectedRecurrenceFilter != null) add(selectedRecurrenceFilter.name.lowercase().replaceFirstChar { it.uppercase() })
+                        if (selectedCategoryFilter != null) add(selectedCategoryFilter.name.lowercase().replaceFirstChar { it.uppercase() })
+                        if (selectedTransactionTypeFilter != null) add(selectedTransactionTypeFilter.lowercase().replaceFirstChar { it.uppercase() })
+                    }.joinToString(", ")
+
+                    Text(
+                        text = "Filter: $activeFilters",
+                        style = MaterialTheme.typography.caption,
+                        color = Color.Gray
+                    )
+                    TextButton(
+                        onClick = onResetAdvancedFilters,
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(24.dp)
+                    ) {
+                        Text("Reset", style = MaterialTheme.typography.caption)
+                    }
+                }
+            }
+        }
     }
 }
+
+@Composable
+fun TransactionListSection(transactions: List<Transaction>) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(transactions) { transaction ->
+            when (transaction) {
+                is Transaction.ExpenseTransaction -> TransactionItem(
+                    name = transaction.name,
+                    amount = transaction.amount,
+                    createdAt = transaction.createdAt,
+                    isIncome = false,
+                    category = transaction.expense.category,
+                    recurrence = transaction.expense.recurrence
+                )
+                is Transaction.IncomeTransaction -> TransactionItem(
+                    name = transaction.name,
+                    amount = transaction.amount,
+                    createdAt = transaction.createdAt,
+                    isIncome = true,
+                    category = null,
+                    recurrence = transaction.income.recurrence
+                )
+                is Transaction.BudgetTransaction -> {
+                    // Not yet implemented, but satisfies exhaustiveness requirement
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TransactionBottomBar(
+    onSortClick: () -> Unit,
+    onFilterClick: () -> Unit,
+    onChartToggle: () -> Unit
+) {
+    BottomAppBar {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            TextButton(onClick = onSortClick) {
+                Text("Sort By", style = MaterialTheme.typography.body1, color = Color.White)
+            }
+            TextButton(onClick = onFilterClick) {
+                Text("Filter", style = MaterialTheme.typography.body1, color = Color.White)
+            }
+            TextButton(onClick = onChartToggle) {
+                Text("Show Chart", style = MaterialTheme.typography.body1, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun BalanceSummary(transactions: List<Transaction>) {
+    val totalIncome = transactions
+        .filterIsInstance<Transaction.IncomeTransaction>()
+        .sumOf { it.income.amount }
+
+    val totalExpense = transactions
+        .filterIsInstance<Transaction.ExpenseTransaction>()
+        .sumOf { it.expense.amount }
+
+    val balance = totalIncome - totalExpense
+    val isPositive = balance >= 0
+
+    Card(
+        backgroundColor = if (isPositive) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp),
+        elevation = 4.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Current Balance", style = MaterialTheme.typography.subtitle1)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "€%.2f".format(balance),
+                style = MaterialTheme.typography.h6,
+                color = if (isPositive) Color(0xFF2E7D32) else Color(0xFFC62828)
+            )
+        }
+    }
+}
+
+
+
+
 

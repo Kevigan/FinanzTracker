@@ -2,8 +2,10 @@ package com.example.financetracker.di
 
 import android.content.Context
 import androidx.room.Room
+import com.example.financetracker.data.BudgetDao
 import com.example.financetracker.data.ExpenseDao
 import com.example.financetracker.data.ExpenseDatabase
+import com.example.financetracker.data.IncomeDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,11 +24,23 @@ object DatabaseModule {
             context,
             ExpenseDatabase::class.java,
             "expense_db"
-        ).build()
+        ).fallbackToDestructiveMigration() // Optional: wipe DB on schema mismatch
+            .build()
     }
 
     @Provides
     fun provideExpenseDao(db: ExpenseDatabase): ExpenseDao {
         return db.expenseDao()
     }
+
+    @Provides
+    fun provideBudgetDao(db: ExpenseDatabase): BudgetDao {
+        return db.budgetDao()
+    }
+
+    @Provides
+    fun provideIncomeDao(db: ExpenseDatabase): IncomeDao {
+        return db.incomeDao()
+    }
 }
+

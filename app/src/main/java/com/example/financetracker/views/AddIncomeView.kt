@@ -6,42 +6,34 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.navigation.NavController
-import com.example.financetracker.data.ExpenseCategory
 import com.example.financetracker.data.RecurrenceMonthDay
 import com.example.financetracker.data.RecurrenceType
 import com.example.financetracker.viewModels.FinanzeViewModel
-import java.util.*
 
 @Composable
-fun AddExpenseView(
+fun AddIncomeView(
     viewModel: FinanzeViewModel,
     navController: NavController
 ) {
-    val categoryOptions = ExpenseCategory.entries
-
     var name by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
 
-    var selectedCategory by remember { mutableStateOf(categoryOptions.first()) }
     var selectedRecurrence by remember { mutableStateOf(RecurrenceType.NONE) }
-
     var selectedRecurrenceDayOfWeek by remember { mutableStateOf<Int?>(null) }
     var selectedRecurrenceMonthDay by remember { mutableStateOf<RecurrenceMonthDay?>(null) }
 
-    var showCategoryDialog by remember { mutableStateOf(false) }
     var showRecurrenceDialog by remember { mutableStateOf(false) }
     var showDayOfWeekDialog by remember { mutableStateOf(false) }
-    var showDayOfMonthDialog by remember { mutableStateOf(false) }
+    var showMonthDayDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.padding(16.dp)) {
         TextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Expense Name") },
+            label = { Text("Income Name") },
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -60,50 +52,33 @@ fun AddExpenseView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showCategoryDialog = true }
-                .padding(vertical = 12.dp)
-        ) {
-            Text("Category: $selectedCategory", style = MaterialTheme.typography.body1)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
                 .clickable { showRecurrenceDialog = true }
                 .padding(vertical = 12.dp)
         ) {
-            Text("Recurrence: $selectedRecurrence", style = MaterialTheme.typography.body1)
+            Text("Recurrence: ${selectedRecurrence.name}", style = MaterialTheme.typography.body1)
         }
 
         if (selectedRecurrence == RecurrenceType.WEEKLY) {
-            val label = selectedRecurrenceDayOfWeek?.let {
-                val days = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-                days[it % 7]
-            } ?: "Select Day of Week"
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { showDayOfWeekDialog = true }
                     .padding(vertical = 12.dp)
             ) {
-                Text("Repeats on: $label", style = MaterialTheme.typography.body1)
+                val day = selectedRecurrenceDayOfWeek?.let { dayOfWeekToName(it) } ?: "Select day"
+                Text("Weekly on: $day", style = MaterialTheme.typography.body1)
             }
         }
 
         if (selectedRecurrence == RecurrenceType.MONTHLY) {
-            val label = selectedRecurrenceMonthDay?.name
-                ?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Select Monthly Day"
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showDayOfMonthDialog = true }
+                    .clickable { showMonthDayDialog = true }
                     .padding(vertical = 12.dp)
             ) {
-                Text("Repeats on: $label", style = MaterialTheme.typography.body1)
+                val day = selectedRecurrenceMonthDay?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Select"
+                Text("Monthly on: $day", style = MaterialTheme.typography.body1)
             }
         }
 
@@ -113,52 +88,23 @@ fun AddExpenseView(
             onClick = {
                 val amountDouble = amount.toDoubleOrNull()
                 if (name.isNotBlank() && amountDouble != null) {
-                    viewModel.addExpense(
+                    viewModel.addIncome(
                         name = name,
                         amount = amountDouble,
-                        category = selectedCategory,
                         recurrence = selectedRecurrence,
                         recurrenceDayOfWeek = selectedRecurrenceDayOfWeek,
-                        recurrenceMonthDay = selectedRecurrenceMonthDay
+                        recurrenceDayOfMonth = selectedRecurrenceMonthDay
                     )
-
-                    // Reset state
-                    name = ""
-                    amount = ""
-                    selectedCategory = categoryOptions.first()
-                    selectedRecurrence = RecurrenceType.NONE
-                    selectedRecurrenceDayOfWeek = null
-                    selectedRecurrenceMonthDay = null
-
                     navController.popBackStack()
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Add Expense")
+            Text("Add Income")
         }
     }
 
-    // Dialogs
-    if (showCategoryDialog) {
-        AlertDialog(
-            onDismissRequest = { showCategoryDialog = false },
-            title = { Text("Select Category") },
-            buttons = {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    categoryOptions.forEach { category ->
-                        TextButton(onClick = {
-                            selectedCategory = category
-                            showCategoryDialog = false
-                        }) {
-                            Text(category.name.lowercase().replaceFirstChar { it.uppercase() })
-                        }
-                    }
-                }
-            }
-        )
-    }
-
+    // Recurrence selection
     if (showRecurrenceDialog) {
         AlertDialog(
             onDismissRequest = { showRecurrenceDialog = false },
@@ -168,6 +114,8 @@ fun AddExpenseView(
                     RecurrenceType.entries.forEach { type ->
                         TextButton(onClick = {
                             selectedRecurrence = type
+                            if (type != RecurrenceType.WEEKLY) selectedRecurrenceDayOfWeek = null
+                            if (type != RecurrenceType.MONTHLY) selectedRecurrenceMonthDay = null
                             showRecurrenceDialog = false
                         }) {
                             Text(type.name.lowercase().replaceFirstChar { it.uppercase() })
@@ -178,25 +126,17 @@ fun AddExpenseView(
         )
     }
 
+    // Weekly day selection
     if (showDayOfWeekDialog) {
-        val days = listOf(
-            "Sunday" to Calendar.SUNDAY,
-            "Monday" to Calendar.MONDAY,
-            "Tuesday" to Calendar.TUESDAY,
-            "Wednesday" to Calendar.WEDNESDAY,
-            "Thursday" to Calendar.THURSDAY,
-            "Friday" to Calendar.FRIDAY,
-            "Saturday" to Calendar.SATURDAY,
-        )
-
+        val days = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
         AlertDialog(
             onDismissRequest = { showDayOfWeekDialog = false },
             title = { Text("Select Day of Week") },
             buttons = {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    days.forEach { (label, value) ->
+                    days.forEachIndexed { index, label ->
                         TextButton(onClick = {
-                            selectedRecurrenceDayOfWeek = value
+                            selectedRecurrenceDayOfWeek = index + 2 // Calendar.MONDAY = 2
                             showDayOfWeekDialog = false
                         }) {
                             Text(label)
@@ -207,18 +147,19 @@ fun AddExpenseView(
         )
     }
 
-    if (showDayOfMonthDialog) {
+    // Monthly recurrence day selection
+    if (showMonthDayDialog) {
         AlertDialog(
-            onDismissRequest = { showDayOfMonthDialog = false },
-            title = { Text("Select Day of Month") },
+            onDismissRequest = { showMonthDayDialog = false },
+            title = { Text("Select Monthly Day") },
             buttons = {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    RecurrenceMonthDay.entries.forEach { option ->
+                    RecurrenceMonthDay.entries.forEach { day ->
                         TextButton(onClick = {
-                            selectedRecurrenceMonthDay = option
-                            showDayOfMonthDialog = false
+                            selectedRecurrenceMonthDay = day
+                            showMonthDayDialog = false
                         }) {
-                            Text(option.name.lowercase().replaceFirstChar { it.uppercase() })
+                            Text(day.name.lowercase().replaceFirstChar { it.uppercase() })
                         }
                     }
                 }
@@ -226,3 +167,15 @@ fun AddExpenseView(
         )
     }
 }
+
+fun dayOfWeekToName(day: Int): String = when (day) {
+    java.util.Calendar.MONDAY -> "Monday"
+    java.util.Calendar.TUESDAY -> "Tuesday"
+    java.util.Calendar.WEDNESDAY -> "Wednesday"
+    java.util.Calendar.THURSDAY -> "Thursday"
+    java.util.Calendar.FRIDAY -> "Friday"
+    java.util.Calendar.SATURDAY -> "Saturday"
+    java.util.Calendar.SUNDAY -> "Sunday"
+    else -> "Unknown"
+}
+
