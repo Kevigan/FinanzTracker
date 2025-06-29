@@ -2,6 +2,7 @@ package com.example.financetracker.viewModels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.financetracker.data.Budget
 import com.example.financetracker.data.BudgetPeriod
 import com.example.financetracker.data.Expense
 import com.example.financetracker.data.ExpenseCategory
@@ -29,11 +30,9 @@ class FinanzeViewModel @Inject constructor(
     private val _sortOption = MutableStateFlow(SortOption.DATE_DESC)
     val sortOption = _sortOption.asStateFlow()
 
-    // Load real incomes from DB
     val incomes = repository.getIncomes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Load real expenses and allow sorting
     val expenses = combine(
         repository.getExpenses(),
         sortOption
@@ -52,126 +51,21 @@ class FinanzeViewModel @Inject constructor(
         emptyList()
     )
 
-    // Combined list of fake expenses + real incomes
-    val mockTransactions = combine(incomes, expenses) { incomes, expenses ->
-        val oneDay = 24 * 60 * 60 * 1000L
-        val now = System.currentTimeMillis()
-
-        // Fake expenses
-        val fakeExpenses = List(50) { index ->
-            Expense(
-                name = "Fake Expense #$index",
-                amount = (5..500).random().toDouble(),
-                category = listOf(
-                    ExpenseCategory.FOOD,
-                    ExpenseCategory.TRANSPORT,
-                    ExpenseCategory.BILLS
-                ).random(),
-                createdAt = now - oneDay * index,
-                recurrence = RecurrenceType.NONE
-            )
-        }
-
-        // Combine all transactions
-        val allTransactions = buildList {
-            addAll(fakeExpenses.map { Transaction.ExpenseTransaction(it) })
-            addAll(expenses.map { Transaction.ExpenseTransaction(it) })
-            addAll(incomes.map { Transaction.IncomeTransaction(it) })
-        }
-
-        allTransactions.sortedByDescending { it.createdAt }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        emptyList()
-    )
-
-    val mockTransactions2 = combine(incomes, expenses) { incomes, expenses ->
-        val now = System.currentTimeMillis()
-        val oneDayMillis = 86_400_000L
-        val oneYearAgo = now - (365 * oneDayMillis)
-
-        val random = java.util.Random()
-
-        // --- 1. Daily small expenses ---
-        val dailyExpenses = (0 until 365).map { day ->
-            val date = oneYearAgo + (day * oneDayMillis)
-            Expense(
-                name = "Coffee & Snacks",
-                amount = 5 + random.nextInt(6).toDouble(), // 5-10€
-                category = ExpenseCategory.FOOD,
-                createdAt = date,
-                recurrence = RecurrenceType.NONE
-            )
-        }
-
-        // --- 2. Weekly groceries ---
-        val weeklyGroceries = (0 until 52).map { week ->
-            val date = oneYearAgo + (week * 7 * oneDayMillis)
-            Expense(
-                name = "Groceries",
-                amount = 30 + random.nextInt(21).toDouble(), // 30-50€
-                category = ExpenseCategory.FOOD,
-                createdAt = date,
-                recurrence = RecurrenceType.NONE
-            )
-        }
-
-        // --- 3. Add recurring expenses from DB ---
-        val recurringExpenses = expenses.filter {
-            it.recurrence != RecurrenceType.NONE
-        }.flatMap { exp ->
-            when (exp.recurrence) {
-                RecurrenceType.WEEKLY -> (0 until 52).map { week ->
-                    exp.copy(createdAt = oneYearAgo + (week * 7 * oneDayMillis))
-                }
-
-                RecurrenceType.MONTHLY -> (0 until 12).map { month ->
-                    val cal = Calendar.getInstance().apply { timeInMillis = oneYearAgo }
-                    cal.add(Calendar.MONTH, month)
-                    exp.copy(createdAt = cal.timeInMillis)
-                }
-
-                else -> emptyList()
-            }
-        }
-
-        // --- 4. Add recurring incomes from DB ---
-        val recurringIncomes = incomes.filter {
-            it.recurrence != RecurrenceType.NONE
-        }.flatMap { income ->
-            when (income.recurrence) {
-                RecurrenceType.WEEKLY -> (0 until 52).map { week ->
-                    income.copy(createdAt = oneYearAgo + (week * 7 * oneDayMillis))
-                }
-
-                RecurrenceType.MONTHLY -> (0 until 12).map { month ->
-                    val cal = Calendar.getInstance().apply { timeInMillis = oneYearAgo }
-                    cal.add(Calendar.MONTH, month)
-                    income.copy(createdAt = cal.timeInMillis)
-                }
-
-                else -> emptyList()
-            }
-        }
-
-        // --- 5. Combine and wrap into transactions ---
-        val allExpenses = dailyExpenses + weeklyGroceries + recurringExpenses
-        val expenseTransactions = allExpenses.map { Transaction.ExpenseTransaction(it) }
-        val incomeTransactions = recurringIncomes.map { Transaction.IncomeTransaction(it) }
-
-        (expenseTransactions + incomeTransactions)
-            .sortedByDescending { it.createdAt }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        emptyList()
-    )
-
     private val _simulatedTransactions = MutableStateFlow<List<Transaction>>(emptyList())
     val simulatedTransactions = _simulatedTransactions.asStateFlow()
 
     private var simulatedDate = System.currentTimeMillis()
+    private var budgetStartDate = getFirstOfCurrentMonth(simulatedDate)
+
+    private fun getFirstOfCurrentMonth(timestamp: Long): Long {
+        val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
 
     fun simulateNextDay() {
         viewModelScope.launch {
@@ -182,7 +76,7 @@ class FinanzeViewModel @Inject constructor(
 
             val newTransactions = mutableListOf<Transaction>()
 
-            // Daily small expense
+            // Add fake expenses and recurring items
             newTransactions += Transaction.ExpenseTransaction(
                 Expense(
                     name = "Daily Expense",
@@ -192,7 +86,6 @@ class FinanzeViewModel @Inject constructor(
                 )
             )
 
-            // Weekly groceries on Mondays
             if (dayOfWeek == Calendar.MONDAY) {
                 newTransactions += Transaction.ExpenseTransaction(
                     Expense(
@@ -204,7 +97,7 @@ class FinanzeViewModel @Inject constructor(
                 )
             }
 
-            // Recurring expenses (from DB)
+            // Add recurring expenses
             expenses.value.filter { it.recurrence != RecurrenceType.NONE }.forEach { exp ->
                 val matches = when (exp.recurrence) {
                     RecurrenceType.WEEKLY -> exp.recurrenceDayOfWeek == dayOfWeek
@@ -217,13 +110,10 @@ class FinanzeViewModel @Inject constructor(
                     else -> false
                 }
                 if (matches) {
-                    newTransactions += Transaction.ExpenseTransaction(
-                        exp.copy(createdAt = simulatedDate)
-                    )
+                    newTransactions += Transaction.ExpenseTransaction(exp.copy(createdAt = simulatedDate))
                 }
             }
 
-            // Recurring incomes (from DB)
             incomes.value.filter { it.recurrence != RecurrenceType.NONE }.forEach { inc ->
                 val matches = when (inc.recurrence) {
                     RecurrenceType.WEEKLY -> inc.recurrenceDayOfWeek == dayOfWeek
@@ -236,15 +126,17 @@ class FinanzeViewModel @Inject constructor(
                     else -> false
                 }
                 if (matches) {
-                    newTransactions += Transaction.IncomeTransaction(
-                        inc.copy(createdAt = simulatedDate)
-                    )
+                    newTransactions += Transaction.IncomeTransaction(inc.copy(createdAt = simulatedDate))
                 }
             }
 
-            // Update the state
+            // Reset only the budget tracker if it's the 1st
+            if (dayOfMonth == 1) {
+                budgetStartDate = getFirstOfCurrentMonth(simulatedDate)
+            }
+
             _simulatedTransactions.value = _simulatedTransactions.value + newTransactions
-            simulatedDate += 86_400_000L // Advance one day
+            simulatedDate += 86_400_000L
         }
     }
 
@@ -307,4 +199,74 @@ class FinanzeViewModel @Inject constructor(
             repository.setBudget(amount = amount, period = period)
         }
     }
+
+    fun updateBudget(budget: Budget){
+        viewModelScope.launch {
+            repository.updateBudget(budget)
+        }
+    }
+
+    fun updateIncome(updated: Income) {
+        viewModelScope.launch {
+            repository.updateIncome(updated)
+        }
+    }
+
+    fun updateExpense(updated: Expense) {
+        viewModelScope.launch {
+            repository.updateExpense(updated)
+        }
+    }
+
+    fun deleteIncome(income: Income) {
+        viewModelScope.launch {
+            repository.deleteIncome(income)
+        }
+    }
+
+    fun deleteExpense(expense: Expense) {
+        viewModelScope.launch {
+            repository.deleteExpense(expense)
+        }
+    }
+    val budgetStatus = combine(
+        budget,
+        simulatedTransactions
+    ) { budgetOpt, allTxs ->
+
+        if (budgetOpt == null || budgetOpt.amount == 0.0) return@combine BudgetStatus.NoBudget
+
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = simulatedDate // use simulated time
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val firstOfMonth = calendar.timeInMillis
+
+
+        val spentThisMonth = allTxs
+            .filterIsInstance<Transaction.ExpenseTransaction>()
+            .filter { tx ->
+                tx.expense.createdAt >= firstOfMonth &&
+                        tx.expense.recurrence == RecurrenceType.NONE
+            }
+            .sumOf { it.expense.amount }
+
+        BudgetStatus.HasBudget(
+            budgetAmount = budgetOpt.amount,
+            spentThisMonth = spentThisMonth,
+            isOverBudget = spentThisMonth >= budgetOpt.amount
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BudgetStatus.NoBudget)
+}
+sealed class BudgetStatus {
+    object NoBudget : BudgetStatus()
+    data class HasBudget(
+        val budgetAmount: Double,
+        val spentThisMonth: Double,
+        val isOverBudget: Boolean
+    ) : BudgetStatus()
 }

@@ -31,6 +31,8 @@ class FinanceRepository @Inject constructor(
         budgetDao.setBudget(budget)
     }
 
+    suspend fun updateBudget(budget: Budget){budgetDao.updateBudget(budget)}
+
     // Incomes
     fun getIncomes(): Flow<List<Income>> = incomeDao.getAllIncomes()
 
@@ -51,6 +53,24 @@ class FinanceRepository @Inject constructor(
 
             (expenseTxs + incomeTxs + budgetTxs).sortedByDescending { it.createdAt }
         }
+
+    // --- Expense update/delete ---
+    suspend fun updateExpense(expense: Expense) {
+        expenseDao.updateExpense(expense)
+    }
+
+    suspend fun deleteExpense(expense: Expense) {
+        expenseDao.deleteExpense(expense)
+    }
+
+    // --- Income update/delete ---
+    suspend fun updateIncome(income: Income) {
+        incomeDao.updateIncome(income)
+    }
+
+    suspend fun deleteIncome(income: Income) {
+        incomeDao.deleteIncome(income)
+    }
 
 }
 
